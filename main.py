@@ -4,6 +4,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
 
+import os
+
 from time import sleep
 from random import random
 
@@ -14,7 +16,7 @@ def sleep_random(time: float):
 search_queue = [('신라면', [])]
 
 # Write csv file
-output = open('output.csv', 'w')
+output = open('output.csv', 'a')
  
 # Write header
 output.write('category_num,product_id,user_num,num_photo,rating,date,num_helpful\n')
@@ -26,6 +28,35 @@ category_dict = {}
 # Prevent from visiting same product twice
 product_id_set = set()
 review_id_set = set()
+
+# If exists, reproduce the review
+if os.path.exists('category_code.csv'):
+    with open('category_code.csv', 'r') as f:
+        for line in f:
+            code, categ = line.split(',')
+            category_dict[categ] = int(code)
+
+if os.path.exists('user_code.csv'):
+    with open('user_code.csv', 'r') as f:
+        for line in f:
+            code, user = line.split(',')
+            user_dict[int(user)] = int(code)
+
+if os.path.exists('product_set'):
+    with open('product_set', 'r') as f:
+        for line in f:
+            product_id_set.add(int(line))
+
+if os.path.exists('review_set'):
+    with open('review_set', 'r') as f:
+        for line in f:
+            product_id_set.add(int(line))
+
+# Save dict and set state for reproducing
+categ_code = open('category_code.csv', 'a')
+user_code = open('user_code.csv', 'a')
+product_set_file = open('product_set', 'a')
+review_set_file = open('review_set', 'a')
 
 # Start selenium webdriver
 options = webdriver.ChromeOptions()
@@ -50,27 +81,49 @@ while True:
     # Move to product page that is in the first of the list, which was not visited
     sleep_random(1)
     product_li_list = driver.find_elements(By.CSS_SELECTOR, 'li.search-product:not(.search-product__ad-badge)')
+
+    # Skip if no search result
+    if len(product_li_list) == 0:
+        continue
+    
     for product_li in product_li_list:
         product_id = int(product_li.get_attribute('id'))
 
         if product_id not in product_id_set:
             product_id_set.add(product_id)
+            product_set_file.write(f'{product_id}\n')
             product_anchor = product_li.find_element(By.TAG_NAME, 'a')
             driver.get(product_anchor.get_attribute('href'))
             break
+
+    # Check if the product is still selling (category data exists)
+    try:
+        sleep(1.5)
+        driver.find_element(By.CSS_SELECTOR, '.prod-not-find-known__buy__info')
+
+        # If found -> product doesn't exist
+        continue
+    
+    except Exception:
+        # Should not be found
+        pass
 
     # Get category
     while True:
         try:
             sleep(1.5)
             category = driver.find_element(By.CSS_SELECTOR, '#breadcrumb li:last-of-type').text
-            break
+
+            if category != '쿠팡 홈':
+                break
         except Exception:
             pass
     
     # If it is a new category, add to category_dict
     if category_dict.get(category) == None:
-        category_dict[category] = len(category_dict.keys())
+        code = len(category_dict.keys())
+        category_dict[category] = code
+        categ_code.write(f'{code},{category}\n')
     category_num = category_dict[category]
 
     # We found the product, so append the queued comment
@@ -96,11 +149,14 @@ while True:
             continue
 
         review_id_set.add(review_id)
+        review_set_file.write(f'{review_id}\n')
 
         user_id = int(review.find_element(By.CSS_SELECTOR, '.js_reviewUserProfileImage').get_attribute('data-member-id'))
 
         if user_dict.get(user_id) == None:
-            user_dict[user_id] = len(user_dict.keys())
+            code = len(user_dict.keys())
+            user_dict[user_id] = code
+            user_code.write(f'{code},{user_id}\n')
         user_num = user_dict[user_id]
 
         num_photo = int(len(review.find_elements(By.CSS_SELECTOR, '.sdp-review__article__list__attachment__list')))
@@ -110,8 +166,14 @@ while True:
         
         output.write(f'{category_num},{product_id},{user_num},{num_photo},{rating},{date},{num_helpful}\n')
 
-        # Find next item to get
-        review.find_element(By.CSS_SELECTOR, '.sdp-review__article__list__info__user__name.js_reviewUserProfileImage').click()
+        # Go into profile and find next item to get
+        try:
+            # Try traditional method first
+            profile_img = review.find_element(By.CSS_SELECTOR, '.sdp-review__article__list__info__user__name.js_reviewUserProfileImage')
+            profile_img.click()
+        except Exception:
+            # On fail, use javascript
+            driver.execute_script('arguments[0].click();', profile_img)
         
         # Explicitly wating for page to load
         while True:
@@ -132,6 +194,9 @@ while True:
 
             if p_review_id in review_id_set:
                 continue
+
+            review_id_set.add(p_review_id)
+            review_set_file.write(f'{p_review_id}\n')
             
             p_name = p_review.find_element(By.CSS_SELECTOR, '.sdp-review__profile__article__list__reviews__product__name').text
            
@@ -150,14 +215,10 @@ while True:
         driver.execute_script("arguments[0].click();", close_btn)
         sleep_random(1)
 
-    if len(user_dict.keys()) > 20:
+    if len(user_dict.keys()) > 3000 or len(category_dict.keys()) > 3000:
         break
 
 output.close()
-
-# Output category - code list
-categ_code = open('category_code.csv', 'w')
-for categ, code in category_dict.items():
-    categ_code.write(f'{categ},{code}\n')
-
 categ_code.close()
+product_set_file.close()
+review_set_file.close()
