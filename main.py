@@ -17,7 +17,7 @@ search_queue = [('신라면', [])]
 output = open('output.csv', 'w')
  
 # Write header
-output.write('category_num,user_num,num_photo,rating,date,num_helpful')
+output.write('category_num,product_id,user_num,num_photo,rating,date,num_helpful\n')
 
 # Detect duplicates & convert id and product category to integer
 user_dict = {}
@@ -62,8 +62,8 @@ while True:
     # Get category
     while True:
         try:
-            category = driver.find_element(By.XPATH, '//*[@id="breadcrumb"]/li[6]/a').text
-            sleep(0.5)
+            sleep(1.5)
+            category = driver.find_element(By.CSS_SELECTOR, '#breadcrumb li:last-of-type').text
             break
         except Exception:
             pass
@@ -73,9 +73,10 @@ while True:
         category_dict[category] = len(category_dict.keys())
     category_num = category_dict[category]
 
+    # We found the product, so append the queued comment
     if len(others) > 0:
         others = list(map(str, others))
-        output.write(str(category_num) + ',' + ','.join(others) + '\n')
+        output.write(str(category_num) + ',' + str(product_id) + ',' + ','.join(others) + '\n')
 
     # Scroll to bottom of the page to load comments
     for i in range(2):
@@ -107,7 +108,7 @@ while True:
         date = review.find_element(By.CSS_SELECTOR, '.sdp-review__article__list__info__product-info__reg-date').text
         num_helpful = int(review.find_element(By.CSS_SELECTOR, '.sdp-review__article__list__help.js_reviewArticleHelpfulContainer').get_attribute('data-count'))
         
-        output.write(f'{category_num},{user_num},{num_photo},{rating},{date},{num_helpful}\n')
+        output.write(f'{category_num},{product_id},{user_num},{num_photo},{rating},{date},{num_helpful}\n')
 
         # Find next item to get
         review.find_element(By.CSS_SELECTOR, '.sdp-review__article__list__info__user__name.js_reviewUserProfileImage').click()
@@ -118,7 +119,6 @@ while True:
                 close_btn = WebDriverWait(driver, 1).until(
                     EC.element_to_be_clickable((By.CSS_SELECTOR, '.sdp-review__profile__article__close-btn.js_modalClose'))
                 )
-                print('wait')
                 break
             except Exception:
                 pass
@@ -150,7 +150,14 @@ while True:
         driver.execute_script("arguments[0].click();", close_btn)
         sleep_random(1)
 
-    if len(user_dict.keys()) > 10:
+    if len(user_dict.keys()) > 20:
         break
 
 output.close()
+
+# Output category - code list
+categ_code = open('category_code.csv', 'w')
+for categ, code in category_dict.items():
+    categ_code.write(f'{categ},{code}\n')
+
+categ_code.close()
