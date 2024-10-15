@@ -12,14 +12,17 @@ from random import random
 def sleep_random(time: float):
     sleep((0.5 + random()) * time)
 
+search_queue = [('102102 여성용 빅사이즈 데일리 루즈핏 라운드넥 니트, FREE(66~110), 베이지', [])]
 # The name of the product to search
-search_queue = [('신라면', [])]
+
+header_available = os.path.exists('output.csv')
 
 # Write csv file
 output = open('output.csv', 'a')
  
-# Write header
-output.write('category_num,product_id,user_num,num_photo,rating,date,num_helpful\n')
+# Write header if it is first time
+if not header_available:
+    output.write('category_num,product_id,user_num,num_photo,rating,date,num_helpful\n')
 
 # Detect duplicates & convert id and product category to integer
 user_dict = {}
@@ -61,7 +64,7 @@ review_set_file = open('review_set', 'a')
 # Start selenium webdriver
 options = webdriver.ChromeOptions()
 options.add_argument('--disable-blink-features=AutomationControlled')
-driver = webdriver.Chrome(options=options) 
+driver = webdriver.Chrome(options=options)
 
 while True:
     driver.get('https://www.coupang.com')
@@ -73,9 +76,10 @@ while True:
 
     # Search the keyword in the front of the queue
     search_keyword, others = search_queue.pop(0)
+    print('Search:', search_keyword)
     search_input = driver.find_element(By.XPATH, '//*[@id="headerSearchKeyword"]')
     search_input.click()
-    sleep_random(0.5)
+    sleep_random(1)
     search_input.send_keys(search_keyword + '\n')
 
     # Move to product page that is in the first of the list, which was not visited
@@ -86,8 +90,9 @@ while True:
     if len(product_li_list) == 0:
         continue
     
+    # sleep(1000)
     for product_li in product_li_list:
-        product_id = int(product_li.get_attribute('id'))
+        product_id = int(product_li.get_property('id'))
 
         if product_id not in product_id_set:
             product_id_set.add(product_id)
@@ -96,11 +101,21 @@ while True:
             driver.get(product_anchor.get_attribute('href'))
             break
 
+    sleep(1.5)
+    # Check response code
+    try:
+        # Should be found
+        driver.find_element(By.CSS_SELECTOR, '#container')
+    except Exception:
+        # Start a new session
+        search_queue.insert(0, [search_keyword, others])
+        driver.quit()
+        driver = webdriver.Chrome(options=options)
+        continue
+
     # Check if the product is still selling (category data exists)
     try:
-        sleep(1.5)
         driver.find_element(By.CSS_SELECTOR, '.prod-not-find-known__buy__info')
-
         # If found -> product doesn't exist
         continue
     
@@ -137,7 +152,11 @@ while True:
         sleep_random(1)
 
     # Click on comments button
-    driver.find_element(By.XPATH, '//*[@id="btfTab"]/ul[1]/li[2]').click()
+    try:
+        review_btn = driver.find_element(By.XPATH, '//*[@id="btfTab"]/ul[1]/li[2]')
+        review_btn.click()
+    except Exception:
+        driver.execute_script('arguments[0].click();', review_btn)
     sleep_random(2)
 
     # Get list of comments
@@ -175,15 +194,22 @@ while True:
             # On fail, use javascript
             driver.execute_script('arguments[0].click();', profile_img)
         
+        popup = False
         # Explicitly wating for page to load
-        while True:
+        for i in range(10):
             try:
                 close_btn = WebDriverWait(driver, 1).until(
                     EC.element_to_be_clickable((By.CSS_SELECTOR, '.sdp-review__profile__article__close-btn.js_modalClose'))
                 )
+                popup = True
                 break
             except Exception:
                 pass
+                
+        # If if doesn't popup, skip
+        if not popup:
+            continue
+
         sleep(2)
         # Get reviews in the profile
         add_cnt = 0
@@ -215,6 +241,7 @@ while True:
         driver.execute_script("arguments[0].click();", close_btn)
         sleep_random(1)
 
+    sleep_random(4)
     if len(user_dict.keys()) > 3000 or len(category_dict.keys()) > 3000:
         break
 
